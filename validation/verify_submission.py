@@ -28,18 +28,19 @@ sys.stdout.reconfigure(encoding='utf-8')
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Segoe UI', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-PACKAGE_ROOT = Path(__file__).resolve().parent
-PROCESSED = PACKAGE_ROOT / 'data' / 'processed'
-OUT_DIR = PACKAGE_ROOT / 'data' / 'outputs'
-REPORTS_DIR = PACKAGE_ROOT / 'reports'
+VALIDATION_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT   = VALIDATION_DIR.parent
+PROCESSED      = PROJECT_ROOT / 'data' / 'processed'
+OUT_DIR        = PROJECT_ROOT / 'data' / 'outputs'
+REPORTS_DIR    = PROJECT_ROOT / 'reports'
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-VALIDATOR = PACKAGE_ROOT / 'humob2026_validator.py'
+VALIDATOR      = VALIDATION_DIR / 'humob2026_validator.py'
 
 candidate_tsvs = [
-    PACKAGE_ROOT / 'submission0918_part2_revision.tsv',
-    PACKAGE_ROOT / 'submission.tsv',
-    OUT_DIR / 'submission0918_part2_revision.tsv',
-    OUT_DIR / 'submission.tsv'
+    PROJECT_ROOT / 'submission.tsv',
+    PROJECT_ROOT / 'submission0918_part2_revision.tsv',
+    OUT_DIR / 'submission.tsv',
+    OUT_DIR / 'submission0918_part2_revision.tsv'
 ]
 
 TSV_PATH = None
@@ -175,7 +176,7 @@ fig.suptitle(
 plt.tight_layout(rect=[0, 0.02, 1, 0.97])
 
 out_plot_local = REPORTS_DIR / 'verify_submission_9plot.png'
-out_plot_root = PACKAGE_ROOT / 'verify_submission_9plot.png'
+out_plot_root = PROJECT_ROOT / 'verify_submission_9plot.png'
 fig.savefig(out_plot_local, facecolor=fig.get_facecolor(), edgecolor='none')
 fig.savefig(out_plot_root, facecolor=fig.get_facecolor(), edgecolor='none')
 plt.close(fig)

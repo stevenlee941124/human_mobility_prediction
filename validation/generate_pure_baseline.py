@@ -16,20 +16,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-PACKAGE_ROOT = Path(__file__).resolve().parent
-PROCESSED = PACKAGE_ROOT / 'data' / 'processed'
-SHARED = PROCESSED
-OUT_DIR = PACKAGE_ROOT / 'data' / 'outputs'
-IMG_DIR = PACKAGE_ROOT / 'reports'
+VALIDATION_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT   = VALIDATION_DIR.parent
+PROCESSED      = PROJECT_ROOT / 'data' / 'processed'
+SHARED         = PROCESSED
+OUT_DIR        = PROJECT_ROOT / 'data' / 'outputs'
+IMG_DIR        = PROJECT_ROOT / 'reports'
 IMG_DIR.mkdir(parents=True, exist_ok=True)
-ART_DIR = Path(r'C:\Users\User\.gemini\antigravity\brain\b4359131-1e31-4062-9e06-ecf9811f8d2f')
-VALIDATOR = PACKAGE_ROOT / 'humob2026_validator.py'
+ART_DIR        = Path(r'C:\Users\User\.gemini\antigravity\brain\b4359131-1e31-4062-9e06-ecf9811f8d2f')
+VALIDATOR      = VALIDATION_DIR / 'humob2026_validator.py'
 
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Segoe UI', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 print("=" * 80)
-print("🚀 正在生成純 Baseline v5 版本 (無波動預測與圖表)...")
+print("🚀 [Step 8] 正在生成純 Baseline v5 版本 (無波動預測與圖表)...")
 print("=" * 80)
 
 # Load data
@@ -81,7 +82,7 @@ eval_routes = [pk for pk in base_v5.keys() if in_official_bbox(pk)]
 print(f"評測範圍內之有效 OD 路線數: {len(eval_routes):,} 條")
 
 out_tsv = OUT_DIR / 'submission_pure_baseline.tsv'
-out_root_pure = PACKAGE_ROOT / 'submission_pure_baseline.tsv'
+out_root_pure = PROJECT_ROOT / 'submission_pure_baseline.tsv'
 with open(out_tsv, 'w', encoding='utf-8') as f, open(out_root_pure, 'w', encoding='utf-8') as f_root:
     for d_str in official_58_dates:
         idx = cal_to_idx[d_str]

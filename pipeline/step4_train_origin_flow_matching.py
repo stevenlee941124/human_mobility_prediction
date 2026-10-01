@@ -1,6 +1,6 @@
 """
 ===============================================================================
-HuMob 2026: Step 3b - Train Per-Origin Destination Map Flow Matching Model
+HuMob 2026: Step 4 - Train Per-Origin Destination Map Flow Matching Model
 ===============================================================================
 Flow Matching 訓練腳本。
 Loss = E_t [ ||v_θ(x_t, t, c) - (x_0 - ε)||² ]
@@ -30,13 +30,16 @@ try:
     ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
 except Exception:
     pass
-PACKAGE_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PACKAGE_ROOT / 'src'))
+
+PIPELINE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT  = PIPELINE_ROOT.parent
+
+sys.path.insert(0, str(PIPELINE_ROOT / 'src'))
 
 from origin_flow_matching import OriginDestFlowUNet, OriginFlowMatching
 
-NPZ_PATH   = PACKAGE_ROOT / 'data' / 'outputs' / 'origin_fm_dataset.npz'
-CHECKPOINT = PACKAGE_ROOT / 'data' / 'outputs' / 'origin_fm_checkpoint_ep5.pt'
+NPZ_PATH   = PROJECT_ROOT / 'data' / 'outputs' / 'origin_fm_dataset.npz'
+CHECKPOINT = PROJECT_ROOT / 'data' / 'outputs' / 'origin_fm_checkpoint_ep5.pt'
 
 # ── 超參數 ─────────────────────────────────────────────────────────────────────
 BATCH_SIZE = 256   # 64→256：steps/epoch 縮 4 倍，攤薄 random data access 開銷
@@ -48,104 +51,106 @@ COND_DIM   = 8
 DEVICE     = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 print("=" * 75, flush=True)
-print(f"[Step 3b] Training Per-Origin Flow Matching on {DEVICE.upper()}", flush=True)
+print("[Step 4] Train Destination Map Flow Matching Model", flush=True)
+print(f"Device: {DEVICE}", flush=True)
+if DEVICE == 'cuda':
+    print(f"GPU: {torch.cuda.get_device_name(0)}", flush=True)
+    print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB", flush=True)
 print("=" * 75, flush=True)
 
 # ── 載入資料 ──────────────────────────────────────────────────────────────────
-print("1/3 Loading dataset...", flush=True)
-t_load = time.time()
+t0 = time.time()
+print(f"正在載入資料集: {NPZ_PATH} ...", flush=True)
+data = np.load(str(NPZ_PATH))
+sample_z    = torch.from_numpy(data['sample_z'])      # (N, 1, 70, 100) float32
+sample_cond = torch.from_numpy(data['sample_cond'])   # (N, 8) float32
+N_SAMPLES   = len(sample_z)
 
-# 🔑 from_numpy 共享記憶體（不複製）→ peak RAM 從 16 GB 降到 8 GB
-#    torch.tensor() 會複製整個 7.94 GB，造成記憶體不足與 swap 地獄
-raw            = np.load(str(NPZ_PATH))
-sample_z_np    = np.array(raw['sample_z'],    dtype=np.float32, copy=False)
-sample_cond_np = np.array(raw['sample_cond'], dtype=np.float32, copy=False)
-del raw  # 釋放 npz 物件
-print(f"  解壓完成: {time.time()-t_load:.1f}s", flush=True)
-
-sample_z    = torch.from_numpy(sample_z_np)    # 共享記憶體，不複製
-sample_cond = torch.from_numpy(sample_cond_np)
-print(f"  torch tensor 建立完成: {time.time()-t_load:.1f}s", flush=True)
-
-N_SAMPLES       = len(sample_z)
-STEPS_PER_EPOCH = (N_SAMPLES + BATCH_SIZE - 1) // BATCH_SIZE
-print(f"✅ 樣本數: {N_SAMPLES:,}  |  每 epoch {STEPS_PER_EPOCH:,} 步", flush=True)
+print(f"✅ 資料載入完成 ({time.time()-t0:.1f}s)", flush=True)
+print(f"   總樣本數: {N_SAMPLES:,}  |  形狀: {list(sample_z.shape)}", flush=True)
+print(f"   條件維度: {list(sample_cond.shape)}", flush=True)
+print(f"   Batch Size: {BATCH_SIZE}  |  Steps/Epoch: {N_SAMPLES // BATCH_SIZE + 1:,}", flush=True)
 
 dataset = TensorDataset(sample_z, sample_cond)
-loader  = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True,
-                     drop_last=False, pin_memory=False,
-                     num_workers=0)
+loader  = DataLoader(
+    dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+    num_workers=0,
+    pin_memory=(DEVICE == 'cuda'),
+    drop_last=False,
+)
 
-# ── 模型 ──────────────────────────────────────────────────────────────────────
-model = OriginDestFlowUNet(cond_dim=COND_DIM, base_ch=BASE_CH, time_dim=TIME_DIM).to(DEVICE)
+# ── 建立模型 ──────────────────────────────────────────────────────────────────
+model = OriginDestFlowUNet(
+    in_channels=1,
+    base_ch=BASE_CH,
+    time_dim=TIME_DIM,
+    cond_dim=COND_DIM,
+).to(DEVICE)
+
+fm = OriginFlowMatching(model, device=DEVICE)
+
 n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-print(f"✅ OriginDestFlowUNet 參數量: {n_params:,}", flush=True)
-print(f"✅ Batch size: {BATCH_SIZE} | Epochs: {EPOCHS} | Steps/epoch: {STEPS_PER_EPOCH:,}", flush=True)
+print(f"✅ 模型建立完成! 參數量: {n_params:,}", flush=True)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-5)
 
-# ── 訓練 ──────────────────────────────────────────────────────────────────────
-print("\n2/3 Flow Matching Training...", flush=True)
-start_time = time.time()
-best_loss  = 1e9
+# ── 訓練迴圈 ──────────────────────────────────────────────────────────────────
+print("\n" + "=" * 75, flush=True)
+print(f"開始訓練 Flow Matching  (共 {EPOCHS} epochs, device={DEVICE})", flush=True)
+print("=" * 75, flush=True)
 
-global_step = 0
+best_loss = float('inf')
+t_train_start = time.time()
+total_steps = 0
 step_loss_history = []
 epoch_loss_history = []
 
 for epoch in range(1, EPOCHS + 1):
     model.train()
     total_loss = 0.0
-    t_epoch    = time.time()
+    t_epoch = time.time()
 
-    # ── 進度條：tqdm 或簡易版 ────────────────────────────────────────────────
+    # 進度條（若有 tqdm 則用，無則降級為文字印出）
     if HAS_TQDM:
-        pbar      = tqdm(loader,
-                         desc=f"Ep {epoch:3d}/{EPOCHS}",
-                         unit='step',
-                         dynamic_ncols=True,
-                         leave=True)
-        data_iter = pbar
+        pbar = tqdm(
+            loader,
+            desc=f"Epoch [{epoch:2d}/{EPOCHS}]",
+            dynamic_ncols=True,
+            unit="batch",
+            leave=True,
+        )
     else:
-        data_iter     = loader
-        print_every   = max(1, STEPS_PER_EPOCH // 10)  # 每完成 10% 印一行
+        pbar = loader
 
-    for step_i, (x0, cond) in enumerate(data_iter):
-        x0   = x0.to(DEVICE, non_blocking=True)    # (B, 1, 70, 100)
-        cond = cond.to(DEVICE, non_blocking=True)   # (B, 8)
-        B    = x0.shape[0]
+    for b_idx, (x1, c) in enumerate(pbar):
+        x1 = x1.to(DEVICE, non_blocking=True)
+        c  = c.to(DEVICE, non_blocking=True)
 
-        # Flow Matching：隨機 t ∈ [0,1]，線性插值，計算目標 vector field
-        t                = torch.rand(B, device=DEVICE)
-        x_t, target      = OriginFlowMatching.get_xt_and_target(x0, t)
-        v_pred           = model(x_t, t, cond)
-        loss             = F.mse_loss(v_pred, target)
+        loss = fm.training_step(x1, c)
 
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
-        total_loss += loss.item() * B
-        global_step += 1
-        if global_step % 10 == 0:
-            step_loss_history.append({'step': global_step, 'loss': float(loss.item())})
+        b_loss = loss.item()
+        total_loss += b_loss * len(x1)
+        total_steps += 1
 
-        # 即時顯示
+        # 記錄每 step loss (降採樣儲存，每 5 steps 記一次避免 log 過膨脹)
+        if total_steps % 5 == 0:
+            step_loss_history.append({'step': total_steps, 'loss': float(b_loss)})
+
         if HAS_TQDM:
             pbar.set_postfix({
-                'loss': f'{loss.item():.4f}',
-                'best': f'{best_loss:.4f}',
+                'loss': f"{b_loss:.5f}",
+                'lr':   f"{optimizer.param_groups[0]['lr']:.1e}",
             })
-        else:
-            if (step_i + 1) % print_every == 0:
-                pct = (step_i + 1) / STEPS_PER_EPOCH * 100
-                elapsed_ep = time.time() - t_epoch
-                print(f"  Ep {epoch:3d} [{pct:5.1f}%] "
-                      f"step {step_i+1}/{STEPS_PER_EPOCH} | "
-                      f"loss {loss.item():.4f} | "
-                      f"{elapsed_ep:.0f}s elapsed", flush=True)
+        elif (b_idx + 1) % 100 == 0:
+            print(f"  ep {epoch}/{EPOCHS} | batch {b_idx+1:4d}/{len(loader)} | loss={b_loss:.5f}", flush=True)
 
     # ── epoch 結束：印出摘要 + ETA ────────────────────────────────────────────
     scheduler.step()
@@ -189,13 +194,13 @@ print("=" * 75, flush=True)
 print(f"✅ Training Done! Best Loss: {best_loss:.6f}", flush=True)
 print(f"✅ Checkpoint → {CHECKPOINT}", flush=True)
 
-# ── 🌟 自動繪製並儲存 Loss vs Steps / Epochs 曲線圖 ───────────────────────
+# ── 自動繪製並儲存 Loss vs Steps / Epochs 曲線圖 ───────────────────────
 import json
 import pandas as pd
 import matplotlib.pyplot as plt
 
-history_json = PACKAGE_ROOT / 'data' / 'outputs' / 'loss_history_ep5.json'
-loss_png     = PACKAGE_ROOT / 'data' / 'outputs' / 'loss_step_curve_ep5.png'
+history_json = PROJECT_ROOT / 'data' / 'outputs' / 'loss_history_ep5.json'
+loss_png     = PROJECT_ROOT / 'data' / 'outputs' / 'loss_step_curve_ep5.png'
 
 with open(history_json, 'w', encoding='utf-8') as f:
     json.dump({'step_loss': step_loss_history, 'epoch_loss': epoch_loss_history}, f, indent=2)

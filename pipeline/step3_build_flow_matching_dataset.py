@@ -1,6 +1,6 @@
 """
 ===============================================================================
-HuMob 2026: Step 2b - Build Per-Origin Flow Matching Dataset  [Vectorized]
+HuMob 2026: Step 3 - Build Per-Origin Flow Matching Dataset  [Vectorized]
 ===============================================================================
 每個訓練樣本 = (起點 O, 日期 d) 的標準化目的地殘差場 Z ∈ R^(1, 70, 100)
 條件向量 c (8維):
@@ -26,26 +26,28 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 sys.stdout.reconfigure(encoding='utf-8')
-PACKAGE_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PACKAGE_ROOT / 'src'))
+PIPELINE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT  = PIPELINE_ROOT.parent
+
+sys.path.insert(0, str(PIPELINE_ROOT / 'src'))
 
 from japan_calendar import JAPAN_HOLIDAYS
 from baseline_module import compute_full_baseline
 
-# ── 共用資料（從本地 processed 資料夾讀取，不依賴外部資料夾）──
-SHARED_DATA = PACKAGE_ROOT / 'data'
+# ── 共用資料（從本地 processed 資料夾讀取）──
+SHARED_DATA = PROJECT_ROOT / 'data'
 OD_PKL    = SHARED_DATA / 'processed' / 'od_time_series.pkl'
 DATES_PKL = SHARED_DATA / 'processed' / 'dates.pkl'
 DESTS_PKL = SHARED_DATA / 'processed' / 'eval_destinations.pkl'
 
-# ── 本專案輸出 ────────────────────────────────────────────────────────────────
-OUT_NPZ   = PACKAGE_ROOT / 'data' / 'outputs' / 'origin_fm_dataset.npz'
-OUT_META  = PACKAGE_ROOT / 'data' / 'outputs' / 'origin_fm_meta.pkl'
+# ── 輸出 ────────────────────────────────────────────────────────────────
+OUT_NPZ   = PROJECT_ROOT / 'data' / 'outputs' / 'origin_fm_dataset.npz'
+OUT_META  = PROJECT_ROOT / 'data' / 'outputs' / 'origin_fm_meta.pkl'
 
 GRID_W, GRID_H = 70, 100
 
 print("=" * 75)
-print("[Step 2b] Building Per-Origin Flow Matching Dataset  [Vectorized]")
+print("[Step 3] Building Per-Origin Flow Matching Dataset  [Vectorized]")
 print("=" * 75)
 t_global = time.time()
 
@@ -60,10 +62,10 @@ start_dt = datetime(2023, 11, 1)
 cal_dates = [(start_dt + timedelta(days=i)).strftime('%Y%m%d') for i in range(366)]
 cal_date_to_idx = {d: i for i, d in enumerate(cal_dates)}
 
-# 🚀 關鍵：預建 obs_to_cal_idx 陣列 (N_OBS,)，以後可以 numpy 整條賦值
+# 預建 obs_to_cal_idx 陣列 (N_OBS,)，numpy 整條賦值
 obs_to_cal_idx = np.array(
     [cal_date_to_idx.get(d, -1) for d in dates_str], dtype=np.int32
-)  # -1 表示該觀測日不在 cal 範圍內（不應發生）
+)
 
 # ── 訓練日索引 (排除 2024/02/01~04/30 盲區) ──────────────────────────────────
 train_obs_indices = np.array(
@@ -105,28 +107,25 @@ for d_str_k in eval_destinations:
 valid_dests = [(d, dest_coord_map[d]) for d in eval_destinations if dest_coord_map[d] is not None]
 print(f"✅ 有效目的地數: {len(valid_dests)} / {len(eval_destinations)}")
 
-# ── 🚀 批次計算所有 OD 路線的 Baseline (向量化 fill) ─────────────────────────
+# ── 批次計算所有 OD 路線的 Baseline (向量化 fill) ─────────────────────────
 print(f"正在計算 OD Baseline（只計算實際存在於 od_ts 的路線）...")
 t0 = time.time()
 
-# 只需要計算存在於 od_ts 且 origin 在 eval_origins 的路線
 eval_origin_set = set(eval_origins)
 needed_keys = [k for k in od_ts.keys()
                if '-' in k and k.split('-')[0] in eval_origin_set
                and k.split('-')[1] in eval_dest_set]
 
-# 預建 obs→cal 向量化 fill 工具
-valid_obs_mask = obs_to_cal_idx >= 0   # 應該全部有效
+valid_obs_mask = obs_to_cal_idx >= 0
 
 baselines = {}
 for i, pair_key in enumerate(needed_keys):
-    raw_arr = od_ts[pair_key]           # (N_OBS,) 已存在
-    # 🚀 向量化：一次填入 366 格
+    raw_arr = od_ts[pair_key]
     y_366 = np.zeros(366, dtype=np.float64)
-    cal_idxs = obs_to_cal_idx[valid_obs_mask]          # valid obs 的 cal 位置
-    vals = raw_arr[valid_obs_mask].astype(np.float64)  # 對應的觀測值
+    cal_idxs = obs_to_cal_idx[valid_obs_mask]
+    vals = raw_arr[valid_obs_mask].astype(np.float64)
     vals = np.where(np.isnan(vals), 0.0, vals)
-    y_366[cal_idxs] = vals                             # 一次賦值，取代 for loop
+    y_366[cal_idxs] = vals
     b_366, _, _ = compute_full_baseline(y_366, cal_dates, cal_date_to_idx)
     baselines[pair_key] = b_366
 
@@ -136,8 +135,7 @@ for i, pair_key in enumerate(needed_keys):
 
 print(f"✅ Baseline 計算完成，共 {len(baselines):,} 條路線，耗時 {time.time()-t0:.1f}s")
 
-# ── 🚀 預計算所有訓練日的條件向量矩陣（一次建好，不在 origin 迴圈內重複）────
-# all_train_cond_base: (N_TRAIN, 6)，不含 origin_x/y
+# ── 預計算所有訓練日的條件向量矩陣 ──────────────────────────────────────────
 print("預計算訓練日條件向量...")
 all_train_cond_base = np.zeros((N_TRAIN, 6), dtype=np.float32)
 for i, ti in enumerate(train_obs_indices):
@@ -148,19 +146,12 @@ for i, ti in enumerate(train_obs_indices):
     tau   = c_idx / 365.0
     all_train_cond_base[i, 0] = math.sin(2 * math.pi * wd / 7)
     all_train_cond_base[i, 1] = math.cos(2 * math.pi * wd / 7)
-    all_train_cond_base[i, 2] = 1.0 if d_str in JAPAN_HOLIDAYS else 0.0
-    all_train_cond_base[i, 3] = math.sin(2 * math.pi * tau)  # 連續平滑年季節週期 (取代階梯 month)
-    all_train_cond_base[i, 4] = math.cos(2 * math.pi * tau)  # 連續平滑年季節週期 (取代階梯 month)
-    all_train_cond_base[i, 5] = tau                          # 連續線性時間進程
-print(f"✅ 條件矩陣 shape: {all_train_cond_base.shape}")
-
-# ── 🚀 預建 cal_idx → b_366 的 obs 切片索引 ──────────────────────────────────
-# b_366 是 366 長，obs_to_cal_idx 告訴我們每個觀測日對應哪個 cal 位置
-# 所以 b_obs[t] = b_366[obs_to_cal_idx[t]]
-# 用 numpy 一次取：b_obs = b_366[obs_to_cal_idx]
+    all_train_cond_base[i, 2] = 1.0 if (wd >= 5 or d_str in JAPAN_HOLIDAYS) else 0.0
+    all_train_cond_base[i, 3] = math.sin(2 * math.pi * dt.month / 12)
+    all_train_cond_base[i, 4] = math.cos(2 * math.pi * dt.month / 12)
+    all_train_cond_base[i, 5] = tau
 
 # ── 主迴圈：逐起點構建訓練樣本 ───────────────────────────────────────────────
-# 預分配輸出陣列（避免 list.append 的記憶體碎片）
 total_samples = N_ORIGINS * N_TRAIN
 print(f"\n預分配輸出陣列: {N_ORIGINS} 起點 × {N_TRAIN} 天 = {total_samples:,} 樣本")
 print(f"記憶體需求估算: sample_z ≈ {total_samples * 7000 * 4 / 1e9:.2f} GB")
@@ -168,7 +159,7 @@ print(f"記憶體需求估算: sample_z ≈ {total_samples * 7000 * 4 / 1e9:.2f}
 sample_z_arr    = np.zeros((total_samples, 1, GRID_W, GRID_H), dtype=np.float32)
 sample_cond_arr = np.zeros((total_samples, 8),                  dtype=np.float32)
 origin_meta_list = []
-write_ptr = 0   # 寫入指標
+write_ptr = 0
 
 print("\n開始逐起點構建 destination map 訓練張量 [向量化]...")
 t_loop = time.time()
@@ -180,8 +171,7 @@ for o_idx, o_str in enumerate(eval_origins):
     ox_norm = ox / float(GRID_W)
     oy_norm = oy / float(GRID_H)
 
-    # 🚀 構建 (N_OBS, 1, 70, 100) 不用任何 date for-loop
-    y_o = np.zeros((N_OBS, GRID_W, GRID_H), dtype=np.float32)   # (T, W, H)
+    y_o = np.zeros((N_OBS, GRID_W, GRID_H), dtype=np.float32)
     b_o = np.zeros((N_OBS, GRID_W, GRID_H), dtype=np.float32)
 
     for d_str_k, d_coord in valid_dests:
@@ -193,33 +183,28 @@ for o_idx, o_str in enumerate(eval_origins):
         if raw_arr is not None:
             vals = raw_arr.copy()
             vals = np.where(np.isnan(vals), 0.0, vals)
-            y_o[:, dx, dy] += vals                 # 🚀 整條時間軸一次加
+            y_o[:, dx, dy] += vals
 
         if b_366 is not None:
-            b_obs = np.nan_to_num(b_366[obs_to_cal_idx], nan=0.0)  # 🚀 一次 fancy indexing + 防 NaN
+            b_obs = np.nan_to_num(b_366[obs_to_cal_idx], nan=0.0)
             b_o[:, dx, dy] += b_obs.astype(np.float32)
 
-    # 擴充 channel 維度: (N_OBS, 1, W, H)
     y_o = y_o[:, None, :, :]
     b_o = b_o[:, None, :, :]
 
-    # sigma & 標準化
-    resids  = y_o[train_obs_indices] - b_o[train_obs_indices]   # (N_TRAIN, 1, W, H)
+    resids  = y_o[train_obs_indices] - b_o[train_obs_indices]
     resids  = np.nan_to_num(resids, nan=0.0)
-    sigma_o = np.std(resids, axis=0)                             # (1, W, H)
+    sigma_o = np.std(resids, axis=0)
     sigma_o = np.nan_to_num(sigma_o, nan=0.1)
     sigma_o = np.maximum(sigma_o, 0.1)
-    z_o     = (y_o - b_o) / sigma_o                             # (N_OBS, 1, W, H)
+    z_o     = (y_o - b_o) / sigma_o
     z_o     = np.nan_to_num(z_o, nan=0.0, posinf=0.0, neginf=0.0)
 
-    # 🚀 訓練切片：一次 numpy indexing，不用 for ti
-    z_train = z_o[train_obs_indices]                             # (N_TRAIN, 1, W, H)
+    z_train = z_o[train_obs_indices]
     z_train = np.nan_to_num(z_train, nan=0.0, posinf=0.0, neginf=0.0)
 
-    # 寫入預分配陣列
     sample_z_arr[write_ptr: write_ptr + N_TRAIN] = z_train
 
-    # 條件向量：base (N_TRAIN, 6) + 後兩維 origin 座標
     cond = np.empty((N_TRAIN, 8), dtype=np.float32)
     cond[:, :6] = all_train_cond_base
     cond[:, 6]  = ox_norm
@@ -228,13 +213,12 @@ for o_idx, o_str in enumerate(eval_origins):
 
     write_ptr += N_TRAIN
 
-    # 儲存解碼元數據
     origin_meta_list.append({
         'o_str':   o_str,
         'ox': ox, 'oy': oy,
         'ox_norm': ox_norm,
         'oy_norm': oy_norm,
-        'sigma':   sigma_o,   # (1, 70, 100)
+        'sigma':   sigma_o,
     })
 
     if (o_idx + 1) % 50 == 0 or (o_idx + 1) == N_ORIGINS:
@@ -243,7 +227,6 @@ for o_idx, o_str in enumerate(eval_origins):
         print(f"  {o_idx+1:4d}/{N_ORIGINS} 起點 | 已寫入 {write_ptr:,} 樣本 | "
               f"elapsed {elapsed:.0f}s | ETA {eta:.0f}s", flush=True)
 
-# 修正實際寫入數量（若有 None coord 被跳過）
 sample_z_arr    = sample_z_arr[:write_ptr]
 sample_cond_arr = sample_cond_arr[:write_ptr]
 

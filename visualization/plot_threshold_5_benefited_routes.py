@@ -10,12 +10,13 @@ from datetime import datetime, timedelta
 import numpy as np
 import matplotlib.pyplot as plt
 
-PACKAGE_ROOT = Path(__file__).resolve().parent
-PROCESSED = PACKAGE_ROOT / 'data' / 'processed'
-OUT_DIR = PACKAGE_ROOT / 'data' / 'outputs'
-IMG_DIR = PACKAGE_ROOT / 'reports'
+VIS_DIR      = Path(__file__).resolve().parent
+PROJECT_ROOT = VIS_DIR.parent
+PROCESSED    = PROJECT_ROOT / 'data' / 'processed'
+OUT_DIR      = PROJECT_ROOT / 'data' / 'outputs'
+IMG_DIR      = PROJECT_ROOT / 'reports'
 IMG_DIR.mkdir(parents=True, exist_ok=True)
-ART_DIR = Path(r'C:\Users\User\.gemini\antigravity\brain\b4359131-1e31-4062-9e06-ecf9811f8d2f')
+ART_DIR      = Path(r'C:\Users\User\.gemini\antigravity\brain\b4359131-1e31-4062-9e06-ecf9811f8d2f')
 
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Segoe UI', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
@@ -25,7 +26,7 @@ dates_str = pickle.load(open(PROCESSED / 'dates.pkl', 'rb'))
 base_v5 = pickle.load(open(OUT_DIR / 'per_route_full_rise_event_baseline_v5.pkl', 'rb'))
 preds = pickle.load(open(OUT_DIR / 'per_route_full_rise_weekly_predictions.pkl', 'rb'))
 
-sys.path.insert(0, str(PACKAGE_ROOT / 'src'))
+sys.path.insert(0, str(PROJECT_ROOT / 'pipeline' / 'src'))
 from route_features import compute_route_statistics
 route_stats = compute_route_statistics(od_ts, dates_str)
 
@@ -91,7 +92,7 @@ fig.suptitle('門檻下修至 5.0 人之實質受惠路線特寫 (Class 5 & 8 �
 plt.tight_layout(rect=[0, 0.02, 1, 0.95])
 
 p_local = IMG_DIR / 'threshold_5_benefited_routes.png'
-p_root = PACKAGE_ROOT / 'threshold_5_benefited_routes.png'
+p_root = PROJECT_ROOT / 'threshold_5_benefited_routes.png'
 fig.savefig(p_local, facecolor=fig.get_facecolor(), edgecolor='none')
 fig.savefig(p_root, facecolor=fig.get_facecolor(), edgecolor='none')
 plt.close(fig)

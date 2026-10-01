@@ -21,14 +21,15 @@ import lightgbm as lgb
 
 sys.stdout.reconfigure(encoding='utf-8')
 
-PACKAGE_ROOT = Path(__file__).resolve().parent
-PROCESSED = PACKAGE_ROOT / 'data' / 'processed'
-OUT_DIR = PACKAGE_ROOT / 'data' / 'outputs'
+PIPELINE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT  = PIPELINE_ROOT.parent
+PROCESSED = PROJECT_ROOT / 'data' / 'processed'
+OUT_DIR = PROJECT_ROOT / 'data' / 'outputs'
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 SHARED = PROCESSED
 
 print("=" * 80)
-print("🚀 [Step 1] 正在以各路線標準差 (1.5 * sigma) 門檻過濾日常噪音，重新訓練事件模型...")
+print("🚀 [Step 5] 正在以各路線標準差 (1.5 * sigma) 門檻過濾日常噪音，重新訓練事件模型...")
 print("=" * 80)
 
 # 1. 載入資料
@@ -269,4 +270,4 @@ p_base_out = OUT_DIR / 'per_route_full_rise_event_baseline_v5.pkl'
 with open(p_base_out, 'wb') as f:
     pickle.dump(base_v5, f)
 print(f"💾 全新 Baseline v5 已儲存: {p_base_out.name}")
-print("🎉 [Step 1] 完成！日常噪音已成功過濾，事件純淨調變基線建立完畢！")
+print("🎉 [Step 5] 完成！日常噪音已成功過濾，事件純淨調變基線建立完畢！")

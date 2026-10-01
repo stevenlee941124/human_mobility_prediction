@@ -10,14 +10,14 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from pathlib import Path
 
-PACKAGE_ROOT = Path(__file__).resolve().parent
-LOCAL_DIR = PACKAGE_ROOT
-PROCESSED = PACKAGE_ROOT / 'data' / 'processed'
-SHARED = PROCESSED
-OUT_DIR = PACKAGE_ROOT / 'data' / 'outputs'
-IMG_DIR = PACKAGE_ROOT / 'reports'
+VIS_DIR      = Path(__file__).resolve().parent
+PROJECT_ROOT = VIS_DIR.parent
+PROCESSED    = PROJECT_ROOT / 'data' / 'processed'
+SHARED       = PROCESSED
+OUT_DIR      = PROJECT_ROOT / 'data' / 'outputs'
+IMG_DIR      = PROJECT_ROOT / 'reports'
 IMG_DIR.mkdir(parents=True, exist_ok=True)
-ART_DIR = Path(r'C:\Users\User\.gemini\antigravity\brain\b4359131-1e31-4062-9e06-ecf9811f8d2f')
+ART_DIR      = Path(r'C:\Users\User\.gemini\antigravity\brain\b4359131-1e31-4062-9e06-ecf9811f8d2f')
 
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Segoe UI', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
@@ -31,7 +31,7 @@ meta = pickle.load(open(OUT_DIR / 'per_route_exponential_baseline_meta_v1_sota.p
 info = meta['route_info']
 
 import sys
-sys.path.insert(0, str(LOCAL_DIR / 'src'))
+sys.path.insert(0, str(PROJECT_ROOT / 'pipeline' / 'src'))
 from route_features import compute_route_statistics
 route_stats = compute_route_statistics(od_ts, dates_str)
 

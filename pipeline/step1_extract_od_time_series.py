@@ -1,6 +1,8 @@
-﻿"""
+"""
 ===============================================================================
 HuMob 2026: Step 1 - Extract OD Time Series & Identify Evaluation Destinations
+===============================================================================
+從原始 TSV 數據解析 366 天時間序列、提取 15,129 條有效 OD 路線與 292 個觀測日。
 ===============================================================================
 """
 import sys
@@ -10,13 +12,14 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 sys.stdout.reconfigure(encoding='utf-8')
-PACKAGE_ROOT = Path(__file__).resolve().parent
+PIPELINE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT  = PIPELINE_ROOT.parent
 
-RAW_TSV      = PACKAGE_ROOT / 'data' / 'raw'       / 'humob2026-dataset.tsv'
-OUT_OD_TS    = PACKAGE_ROOT / 'data' / 'processed' / 'od_time_series.pkl'
-OUT_DATES    = PACKAGE_ROOT / 'data' / 'processed' / 'dates.pkl'
-OUT_DESTS    = PACKAGE_ROOT / 'data' / 'processed' / 'eval_destinations.pkl'
-OUT_DEST_MAP = PACKAGE_ROOT / 'data' / 'processed' / 'dest_to_origins.pkl'
+RAW_TSV      = PROJECT_ROOT / 'data' / 'raw'       / 'humob2026-dataset.tsv'
+OUT_OD_TS    = PROJECT_ROOT / 'data' / 'processed' / 'od_time_series.pkl'
+OUT_DATES    = PROJECT_ROOT / 'data' / 'processed' / 'dates.pkl'
+OUT_DESTS    = PROJECT_ROOT / 'data' / 'processed' / 'eval_destinations.pkl'
+OUT_DEST_MAP = PROJECT_ROOT / 'data' / 'processed' / 'dest_to_origins.pkl'
 
 print("=" * 75)
 print("[Step 1 Dest] Extracting OD Time Series & Indexing Destination Grids")

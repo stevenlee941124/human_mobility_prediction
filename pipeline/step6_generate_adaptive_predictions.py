@@ -21,15 +21,16 @@ import matplotlib.dates as mdates
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Segoe UI', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
-PACKAGE_ROOT = Path(__file__).resolve().parent
-PROCESSED = PACKAGE_ROOT / 'data' / 'processed'
-SHARED = PROCESSED
-OUT_DIR = PACKAGE_ROOT / 'data' / 'outputs'
-IMG_DIR = PACKAGE_ROOT / 'reports'
+PIPELINE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT  = PIPELINE_ROOT.parent
+PROCESSED     = PROJECT_ROOT / 'data' / 'processed'
+SHARED        = PROCESSED
+OUT_DIR       = PROJECT_ROOT / 'data' / 'outputs'
+IMG_DIR       = PROJECT_ROOT / 'reports'
 IMG_DIR.mkdir(parents=True, exist_ok=True)
-ART_DIR = Path(r'C:\Users\User\.gemini\antigravity\brain\b4359131-1e31-4062-9e06-ecf9811f8d2f')
+ART_DIR       = Path(r'C:\Users\User\.gemini\antigravity\brain\b4359131-1e31-4062-9e06-ecf9811f8d2f')
 
-sys.path.insert(0, str(PACKAGE_ROOT / 'src'))
+sys.path.insert(0, str(PIPELINE_ROOT / 'src'))
 from cyclical_psi import compute_weekly_psi_log
 from residual_fusion import fuse_predictions
 from route_features import compute_route_statistics
@@ -41,10 +42,10 @@ BASE_V5     = OUT_DIR / 'per_route_full_rise_event_baseline_v5.pkl'
 CACHED_Z    = OUT_DIR / 'cached_active_routes_z.pkl'
 FM_META_PKL = OUT_DIR / 'origin_fm_log1p_meta.pkl'
 META_V1_PKL = OUT_DIR / 'per_route_exponential_baseline_meta_v1_sota.pkl'
-VALIDATOR   = PACKAGE_ROOT / 'humob2026_validator.py'
+VALIDATOR   = PROJECT_ROOT / 'validation' / 'humob2026_validator.py'
 
 print("=" * 80)
-print("🚀 [Step 2 & 3] 正在生成去過平滑 (De-Smoothed) 與標準差門檻事件過濾之全量預測...")
+print("🚀 [Step 6] 正在生成自適應雙軌共振波動預測與提交檔 (De-Smoothed) 與標準差門檻事件過濾之全量預測...")
 print("=" * 80)
 
 print("📖 正在載入歷史資料與模型基線...")
@@ -309,7 +310,7 @@ p2_art = ART_DIR / 'optimized_desmoothed_zoom.png'
 p2_local = IMG_DIR / 'optimized_desmoothed_zoom.png'
 fig2.savefig(p2_art, facecolor=fig2.get_facecolor(), edgecolor='none')
 fig2.savefig(p2_local, facecolor=fig2.get_facecolor(), edgecolor='none')
-fig2.savefig(PACKAGE_ROOT / 'optimized_desmoothed_zoom.png', facecolor=fig2.get_facecolor(), edgecolor='none')
+fig2.savefig(PROJECT_ROOT / 'optimized_desmoothed_zoom.png', facecolor=fig2.get_facecolor(), edgecolor='none')
 plt.close(fig2)
 print(f"✅ Saved Zoom Plot to: {p2_art.name}")
 
@@ -348,7 +349,13 @@ with open(out_tsv, 'w', encoding='utf-8') as f:
                 d_map[o][dst] = round(val, 4)
         f.write(f"{d_str}\t{d_map}\n")
 
+# 同步另存至根目錄
+import shutil
+shutil.copyfile(out_tsv, PROJECT_ROOT / 'submission.tsv')
+shutil.copyfile(out_tsv, PROJECT_ROOT / 'submission0918_part2_revision.tsv')
+
 print(f"💾 官方格式提交檔已導出: {out_tsv} ({out_tsv.stat().st_size / (1024*1024):.2f} MB)")
+print(f"💾 已同步更新根目錄: {PROJECT_ROOT / 'submission.tsv'}")
 
 # 執行 validator 驗證
 print("🔍 正在執行官方 validator 檢驗...")
