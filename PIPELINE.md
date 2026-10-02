@@ -1,5 +1,5 @@
 # HuMob 2026: Flow Matching + Ψ7 Weekly Waveform + Adaptive Dual-Boost Revision
-## 端到端模組化執行手冊 (對應 `submission0918_part2_revision.tsv` 與 `submission.tsv`)
+## 端到端模組化執行手冊 (對應 `submission.tsv` 與消融實驗提交檔)
 
 本專案已完成**清晰專業的模組化目錄解耦重構**，核心預測管線、驗證評估、專題視覺化與歷史版本歸檔各司其職，實現真正乾淨易讀、可直接報告的代碼架構。
 
@@ -9,8 +9,12 @@
 
 ```text
 ├── pipeline/          ➔ 核心流程：從 Raw Data 提取、特徵張量建構、模型訓練到最終生成 submission.tsv
+│   ├── step1 ~ step5  ➔ 前處理、宏觀物理基線 (SOTA v3)、空間資料集建構與神經訓練
+│   ├── step6          ➔ 【獨立方法一】純神經 Flow Matching 模型獨立預測與 TSV 導出
+│   ├── step7          ➔ 【獨立方法二】純統計 Ψ7 生活作息模型獨立預測與 TSV 導出
+│   ├── step8          ➔ 【融合推論】讀取 Step 6 與 7 成果，雙軌自適應融合產出最終 submission.tsv
 │   └── src/          ➔ 管線專用演算法庫：SOTA v3 基線、Flow Matching、Ψ7 作息、雙軌共振融合等 7 大模組
-├── validation/        ➔ 官方規範驗證 (100% Validator)、9-Plot 實體數值解析、純基線對照組與指標庫
+├── validation/        ➔ 官方規範驗證 (100% Validator)、四大方法橫向對比 (compare_all_submissions.py)
 ├── visualization/     ➔ 專題視覺化與群體多路線波動特性繪圖腳本
 ├── archive_baselines/ ➔ 抵達 SOTA v3 前的歷史基線探索版本存檔 (v0 ~ v2)
 ├── data/              ➔ raw / processed / outputs 數據存儲庫
@@ -22,7 +26,7 @@
 
 ## 一、核心預測管線 (pipeline/)
 
-本目錄包含從原始觀測資料到最終生成提交檔的 6 大步驟：
+本目錄包含從原始觀測資料到最終生成提交檔的 8 大步驟：
 
 ### 【步驟 1】從 Raw Data 提取時間序列與日期清單
 ```bash
@@ -69,7 +73,7 @@ python pipeline/step4_train_origin_flow_matching.py
 ```
 * **核心功能**：訓練 2D U-Net 連續正規化流，學習在給定空間起點與時間條件下，目的地人流動態擾動向量場。
 * **核心模型**：`pipeline/src/origin_flow_matching.py`
-* **輸出權重**：`data/outputs/origin_fm_log1p_checkpoint_ep5.pt`
+* **輸出權重**：`data/outputs/origin_fm_checkpoint_ep5.pt`
 
 ---
 
@@ -84,23 +88,51 @@ python pipeline/step5_train_event_baseline_v5.py
 
 ---
 
-### 【步驟 6】Euler ODE 採樣 + 規律度自適應雙軌共振融合 + 官方 TSV 導出
+### 【步驟 6】★ 獨立方法一：純 Flow Matching 神經生成預測
 ```bash
-python pipeline/step6_generate_adaptive_predictions.py
+python pipeline/step6_predict_flow_matching.py
 ```
 * **核心功能**：
-  1. **Class 1 硬性 0.0 防禦**：針對 7,976 條無人區/全零路線（或 $n_{\text{zero}} \ge 280$ 且均值 $<0.1$），強制輸出 `0.0`，完全繞過神經網絡與週波生成，杜絕「鬼影人流」。
-  2. **極低流量安全保底回退 (Sparsity Fallback)**：對 $n_{\text{zero}} \ge 10$ 或日均流量 $\le 2.5$ 人的稀疏路線，直接回退到平滑物理基線，關閉高頻神經殘差與週波振幅放大，防止泊松小數抽樣雜訊被放大。
-  3. **骨幹自適應雙軌共振 (Dual-Boost)**：對日均 $>5.0$ 人的 Class 5/8 骨幹路線，執行 20 步 Euler ODE 數值積分 + $\Psi_7$ 週期生活作息波合成，依規律度自適應釋放自然起伏振幅。
-* **核心模組**：`pipeline/src/residual_fusion.py`, `pipeline/src/cyclical_psi.py`, `pipeline/src/route_features.py`
+  1. 僅疊加 Flow Matching 學習出之空間微觀神經擾動場 $Z$（完全關閉 $\Psi_7$ 統計週波）。
+  2. 包含 Class 1 零防禦與低流量安全保底。
+* **核心模組**：`pipeline/src/route_features.py`
 * **輸出**：
-  * `data/outputs/per_route_full_rise_weekly_predictions.pkl`
-  * `data/outputs/submission.tsv`
-  * 專案根目錄：`submission.tsv` 與 `submission0918_part2_revision.tsv`
+  * `data/outputs/predictions_flow_matching.pkl`
+  * `data/outputs/submission_flow_matching.tsv`（官方 Validator 檢驗通過）
 
 ---
 
-### 【管線快捷執行】一鍵跑完 Step 1 ~ 6
+### 【步驟 7】★ 獨立方法二：純統計 Ψ7 生活作息週期預測
+```bash
+python pipeline/step7_predict_cyclical_psi.py
+```
+* **核心功能**：
+  1. 僅疊加由歷史殘差分桶提煉出的 $\Psi_7$ 週波（完全關閉 Flow Matching 神經殘差）。
+  2. 包含 Class 1 零防禦與低流量安全保底。
+* **核心模組**：`pipeline/src/cyclical_psi.py`, `pipeline/src/route_features.py`
+* **輸出**：
+  * `data/outputs/predictions_psi_cyclical.pkl`
+  * `data/outputs/submission_psi_cyclical.tsv`（官方 Validator 檢驗通過）
+
+---
+
+### 【步驟 8】★ 雙軌自適應融合推論 (Adaptive Dual-Track Regularity Fusion)
+```bash
+python pipeline/step8_fuse_adaptive_predictions.py
+```
+* **核心功能**：
+  1. **直接載入 Step 6 與 Step 7 之成果**：獲取純神經空間擾動 $\delta_{\text{fm}}$ 與純統計作息週期 $\delta_{\psi}$。
+  2. **規律度自適應權重分配**：
+     $$w_{\psi} = \text{clip}(0.90 + 0.25 \times Reg, 0.90, 1.15), \quad w_{\text{fm}} = \text{clip}(1.00 - 0.60 \times Reg, 0.40, 1.00)$$
+  3. **合成最終最優預測**：高規律通勤路線由統計作息主導，低規律路線由神經擴散釋放真實波動。
+* **輸出**：
+  * `data/outputs/per_route_full_rise_weekly_predictions.pkl`
+  * `data/outputs/submission.tsv`
+  * 根目錄：`submission.tsv` 與 `submission0918_part2_revision.tsv`
+
+---
+
+### 【管線快捷執行】一鍵跑完 Step 1 ~ 8
 ```bash
 python pipeline/run_pipeline.py
 ```
@@ -113,7 +145,10 @@ python pipeline/run_pipeline.py
 # 1. 執行官方規格檢驗 (Validation passed!) 並實體繪製 9-Plot 對照圖
 python validation/verify_submission.py
 
-# 2. 生成穩健純基線對照版 (無高頻波動的保底提交檔)
+# 2. 四大預測方法橫向對比審查 (Baseline vs Pure FM vs Pure PSI vs Dual-Track Fusion)
+python validation/compare_all_submissions.py
+
+# 3. 生成穩健純基線對照版 (無高頻波動的保底提交檔)
 python validation/generate_pure_baseline.py
 ```
 

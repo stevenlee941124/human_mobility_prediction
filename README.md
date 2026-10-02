@@ -1,7 +1,8 @@
 # HuMob 2026 災後人流復甦預測：Flow Matching + Ψ7 自適應共振架構
 ### 核心端到端獨立預測流程庫（From Raw Data to Final Submission）
 
-本目錄完整封裝從 **官方原始觀測資料（Raw Data）** 到 **最終合格提交檔（`submission.tsv` / `submission0918_part2_revision.tsv`）** 的全套代碼與執行管線。全目錄已完成模組化解耦分類，分為核心管線、驗證評估、專題視覺化與歷史存檔四大區域。
+本目錄完整封裝從 **官方原始觀測資料（Raw Data）** 到 **最終合格提交檔（`submission.tsv`）** 的全套代碼與執行管線。
+現已完整重構為 **獨立神經方法 (Pure FM)** 與 **獨立統計方法 (Pure Ψ7)** 各自產出，最後再進行 **自適應雙軌共振融合** 的清晰解耦架構。
 
 ---
 
@@ -15,8 +16,10 @@ flow_matching_psi_cyclical_revision/
 │   ├── step3_build_flow_matching_dataset.py     # Step 3: 建構 Flow Matching 空間張量與條件特徵
 │   ├── step4_train_origin_flow_matching.py      # Step 4: 訓練條件 U-Net 向量場網路
 │   ├── step5_train_event_baseline_v5.py         # Step 5: 1.5σ 去噪訓練事件基線 Base v5
-│   ├── step6_generate_adaptive_predictions.py   # Step 6: 雙軌共振推論並導出 submission.tsv
-│   ├── run_pipeline.py                          # 一鍵依序執行 Step 1 ~ 6
+│   ├── step6_predict_flow_matching.py           # Step 6: ★ 獨立純神經 Flow Matching 預測
+│   ├── step7_predict_cyclical_psi.py            # Step 7: ★ 獨立純統計 Ψ7 生活作息預測
+│   ├── step8_fuse_adaptive_predictions.py       # Step 8: ★ 讀取 Step 6 與 7 成果，雙軌自適應融合推論
+│   ├── run_pipeline.py                          # 🚀 一鍵依序執行 Step 1 ~ 8
 │   └── src/                                     # ★ 管線運行所必備的 7 大演算法核心模組
 │       ├── per_route_sota_v3_baseline.py        # 9 類分層、中點法與指數阻尼橋樑
 │       ├── origin_flow_matching.py              # Flow Matching 神經網路與 Euler ODE
@@ -26,8 +29,9 @@ flow_matching_psi_cyclical_revision/
 │       ├── japan_calendar.py                    # 日本節假日日曆工具
 │       └── baseline_module.py                   # 空間網格基線向量化計算
 │
-├── validation/                   # ★ 【驗證評估】：官方規格約束檢查與純基線對照組
+├── validation/                   # ★ 【驗證與評估】：官方規格約束檢查、指標庫與橫向消融比對
 │   ├── verify_submission.py                     # 官方約束檢驗 + 逐行提取繪製 9-Plot 實體圖
+│   ├── compare_all_submissions.py               # 📊 四大方法提交檔橫向對比審查工具
 │   ├── humob2026_validator.py                   # 競賽官方格式驗證器
 │   ├── generate_pure_baseline.py                # 生成純平滑基線對照提交檔 (無波動保底)
 │   └── evaluation.py                            # MAE, RMSE, Jump Audit 等指標評估工具
@@ -46,9 +50,9 @@ flow_matching_psi_cyclical_revision/
 ├── data/                         # 數據庫
 │   ├── raw/                      # 官方原始資料 (humob2026-dataset.tsv)
 │   ├── processed/                # 前處理序列與索引
-│   └── outputs/                  # 中間特徵、模型權重與預測成果
+│   └── outputs/                  # 中間特徵、模型權重與四大提交檔
 │
-├── submission.tsv                # 🏆 最終官方合格提交檔 (De-Smoothed + Dual-Boost)
+├── submission.tsv                # 🏆 最終官方合格提交檔 (FM + Ψ7 雙軌自適應融合最優版)
 ├── submission_pure_baseline.tsv  # 穩健純基線對照提交檔
 └── reports/                      # 視覺化成果圖表存放區
 ```
@@ -68,20 +72,29 @@ flowchart TD
     
     STEP2 -->|per_route_sota_v3_baseline_backup.pkl| STEP5["【Step 5】pipeline/step5_train_event_baseline_v5.py<br/>以 1.5σ 標準差動態過濾日常噪聲，建立純淨 Base v5"]
     
-    STEP4 -->|origin_fm_log1p_checkpoint_ep5.pt| STEP6["【Step 6】pipeline/step6_generate_adaptive_predictions.py<br/>20 步 Euler ODE + Ψ7 週期作息 + 自適應雙軌共振<br/>★ Class 1 硬性 0.0 防禦 (防止無人區鬼影人流)<br/>★ 第二道防禦：極低流量 (mean<=2.5 或 n_zero>=10) 安全回退純基線<br/>★ 第三道分層：活躍骨幹 (mean>5.0) 啟用雙軌自適應增益"]
-    STEP5 -->|per_route_full_rise_event_baseline_v5.pkl| STEP6
+    STEP4 -->|origin_fm_log1p_checkpoint_ep5.pt| STEP6["【Step 6】pipeline/step6_predict_flow_matching.py<br/>★ 獨立方法一：純 Flow Matching 神經生成預測<br/>產出 predictions_flow_matching.pkl 與 submission_flow_matching.tsv"]
+    STEP5 --> STEP6
     
-    STEP6 -->|submission.tsv| STEP7["【驗證】validation/verify_submission.py<br/>官方 Validator 100% 約束檢驗 + 逐行提取繪製 9-Plot 實體圖"]
+    STEP1 --> STEP7["【Step 7】pipeline/step7_predict_cyclical_psi.py<br/>★ 獨立方法二：純統計 Ψ7 生活作息週期預測<br/>產出 predictions_psi_cyclical.pkl 與 submission_psi_cyclical.tsv"]
+    STEP5 --> STEP7
     
-    STEP5 -.->|穩健對照分支| STEP8["【保底】validation/generate_pure_baseline.py<br/>生成零高頻波動之純宏觀 Base v5 提交檔"]
+    STEP6 -->|predictions_flow_matching.pkl| STEP8["【Step 8】pipeline/step8_fuse_adaptive_predictions.py<br/>★ 雙軌自適應融合推論：直接讀取 Step 6 與 Step 7 成果<br/>依路線規律度 Reg 動態分配權重合成最終 submission.tsv"]
+    STEP7 -->|predictions_psi_cyclical.pkl| STEP8
+    STEP5 --> STEP8
+    
+    STEP8 -->|submission.tsv| VERIFY["【驗證】validation/verify_submission.py<br/>官方 Validator 100% 約束檢驗 + 逐行提取繪製 9-Plot 實體圖"]
+    
+    STEP5 -.->|穩健對照分支| PUREBASE["【保底】validation/generate_pure_baseline.py<br/>生成零高頻波動之純宏觀 Base v5 提交檔"]
     
     classDef inputStyle fill:#1e293b,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
     classDef stepStyle fill:#0f172a,stroke:#a855f7,stroke-width:2px,color:#f8fafc;
+    classDef modelStyle fill:#1e1b4b,stroke:#ec4899,stroke-width:2px,color:#f8fafc;
     classDef verifyStyle fill:#064e3b,stroke:#10b981,stroke-width:2px,color:#f8fafc;
     
     class RAW inputStyle;
-    class STEP1,STEP2,STEP3,STEP4,STEP5,STEP6,STEP8 stepStyle;
-    class STEP7 verifyStyle;
+    class STEP1,STEP2,STEP3,STEP4,STEP5,PUREBASE stepStyle;
+    class STEP6,STEP7,STEP8 modelStyle;
+    class VERIFY verifyStyle;
 ```
 
 ---
@@ -93,50 +106,58 @@ flowchart TD
 1. **第一道防線：Class 1 全零/無人區硬性隔離 (Hard Zero Defense)**
    - **篩選條件**：歷史最大流量 $< 0.05$ 人，或震前均值與四月容納量雙雙 $< 0.05$ 人。
    - **規模與佔比**：全量 15,129 條評測路線中，高達 **7,976 條（佔比 52.7%！）**。
-   - **防禦手段**：在 Step 2 歸入 `Class 1: Persistent Zero`，基線設為 0.0；在 Step 6 推論時直接 Hard Bypass 強制輸出 `0.0`，完全不經過 Flow Matching 與週波合成，**徹底杜絕神經網絡在受災荒蕪區產生「鬼影人流」**。
+   - **防禦手段**：在 Step 2 歸入 `Class 1: Persistent Zero`，基線設為 0.0；在 Step 6/7/8 推論時直接 Hard Bypass 強制輸出 `0.0`，完全不經過神經殘差與週波合成，**徹底杜絕在受災荒蕪區產生「鬼影人流」**。
 2. **第二道防線：極低流量/高稀疏度基線回退 (Sparsity Safety Fallback)**
    - **篩選條件**：觀測日中零值天數 $n_{\text{zero}} \ge 10$ 天，或全年平均日流量 $\text{mean} \le 2.5$ 人，或規律度極低且均值 $\le 1.2$ 人。
    - **統計原理**：日均 $\le 2.5$ 人的路線本質上是隨機泊松事件，相對噪聲變異係數極高（$CV = 1/\sqrt{\lambda}$）。施加任何波動乘子皆會放大抽樣雜訊。
-   - **防禦手段**：直接回退到平滑物理基線（`y_pred = max(0, b_blind)`），關閉 Flow Matching 神經殘差與週波振幅放大，確保極低流量區絕對平穩。
+   - **防禦手段**：直接回退到平滑物理基線（`y_pred = max(0, b_blind)`），關閉神經殘差與週波振幅放大，確保極低流量區絕對平穩。
 3. **第三道分層：活躍骨幹路線自適應雙軌共振 (Dual-Boost for Backbone Routes)**
-   - **激發條件**：僅針對通過前兩道隔離、且平均日流量 $\text{mean} > 5.0$ 人的 Class 5（全面復甦）與 Class 8（部分消散）骨幹路線，啟動 $\Psi_7$ 生活作息週波與 Flow Matching 空間擴散增益，精準重建自然起伏。
+   - **激發條件**：僅針對通過前兩道隔離、且平均日流量 $\text{mean} > 5.0$ 人的 Class 5（全面復甦）與 Class 8（部分消散）骨幹路線，依據作息規律度 $Reg$ 動態分配 $\Psi_7$ 週期波與 Flow Matching 空間擴散增益，精準重建自然起伏。
 
 ---
 
 ## 快速執行指南 (Quick Start)
 
-### 1. 執行核心預測流程 (Raw Data ➔ Submission)
+### 1. 一鍵執行全套 8 大流程
 ```bash
-# 方式 A：一鍵依序執行 Step 1 ~ Step 6 全套流程
 python pipeline/run_pipeline.py
+```
 
-# 方式 B：單步執行
+### 2. 單步逐步執行
+```bash
+# 前處理與基線
 python pipeline/step1_extract_od_time_series.py
 python pipeline/step2_compute_macro_baseline.py
+
+# Flow Matching 神經網路訓練
 python pipeline/step3_build_flow_matching_dataset.py
 python pipeline/step4_train_origin_flow_matching.py
 python pipeline/step5_train_event_baseline_v5.py
-python pipeline/step6_generate_adaptive_predictions.py
+
+# ★ 獨立產出兩大方法之預測成果
+python pipeline/step6_predict_flow_matching.py     # 輸出 submission_flow_matching.tsv
+python pipeline/step7_predict_cyclical_psi.py      # 輸出 submission_psi_cyclical.tsv
+
+# ★ 讀取上述兩大輸出，依規律度自適應合成
+python pipeline/step8_fuse_adaptive_predictions.py # 輸出最終 submission.tsv
 ```
 
-### 2. 驗證提交檔案與官方規範
+### 3. 官方格式驗證與多方法橫向消融對比
 ```bash
-# 執行官方規格檢驗並繪製 9-Plot 實體對照圖
+# 驗證最終預測檔並繪製 9 類驗證圖
 python validation/verify_submission.py
-```
 
-### 3. 生成專題視覺化圖表
-```bash
-# 繪製 5.0 人門檻受惠路線特寫
-python visualization/plot_threshold_5_benefited_routes.py
-
-# 繪製 Class 5 與 Class 8 群體波動對比圖
-python visualization/plot_other_class5_class8_routes.py
+# 橫向對比四大方法（純基線 vs 純FM vs 純Ψ7 vs 雙軌融合）之代表路線日跳動
+python validation/compare_all_submissions.py
 ```
 
 ---
 
-## 詳細技術原理文檔
-更深入的數學推導、物理機制、消融實驗數據與 9 大類別行為圖譜，請參閱：
-* 📘 **[METHODOLOGY_TECHNICAL_REPORT.md](METHODOLOGY_TECHNICAL_REPORT.md)**：完整方程式、統計分佈分析與學術報告重點。
-* 📙 **[PIPELINE.md](PIPELINE.md)**：各步驟輸入輸出參數與資料結構規格。
+## 四大版本提交檔成果一覽
+
+| 版本提交檔 | 方法分類 | 核心特點 | 官方驗證狀態 |
+| :--- | :--- | :--- | :---: |
+| **`submission_pure_baseline.tsv`** | 純宏觀物理基線 | 零高頻波動，完全無相位錯位風險之平滑基線 | `Validation passed!` |
+| **`data/outputs/submission_flow_matching.tsv`** | 純神經生成模型 | 僅使用 2D U-Net CNF 空間擴散擾動場 (無統計週波) | `Validation passed!` |
+| **`data/outputs/submission_psi_cyclical.tsv`** | 純統計生活作息 | 僅使用 7 日生活作息中位數分桶與零均值中心化 (無神經殘差) | `Validation passed!` |
+| **`submission.tsv`** 🏆 | **雙軌自適應共振融合** | **依規律度 Reg 動態融合純 FM 與純 Ψ7，兼具真實作息與微觀起伏** | **`Validation passed!`** |
