@@ -129,7 +129,11 @@ for epoch in range(1, EPOCHS + 1):
         x1 = x1.to(DEVICE, non_blocking=True)
         c  = c.to(DEVICE, non_blocking=True)
 
-        loss = fm.training_step(x1, c)
+        B = x1.shape[0]
+        t = torch.rand(B, device=DEVICE)
+        x_t, target = OriginFlowMatching.get_xt_and_target(x1, t)
+        v_pred = model(x_t, t, c)
+        loss = F.mse_loss(v_pred, target)
 
         optimizer.zero_grad()
         loss.backward()
